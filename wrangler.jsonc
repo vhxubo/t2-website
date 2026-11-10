@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "t2",
+  "compatibility_date": "2026-11-10",
+  "assets": {
+    "directory": "./",
+    "not_found_handling": "single-page-application"
+  },
+  "routes": [
+    { "pattern": "t2.vhxubo.com", "custom_domain": true }
+  ]
+}
