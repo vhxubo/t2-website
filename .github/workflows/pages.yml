@@ -1,0 +1,50 @@
+# 首次启用：仓库 Settings → Pages → Source 选择 "GitHub Actions"。
+# 发布内容为仓库中的 index.html 与 downloads/，站点对所有人公开（私有仓库也一样）。
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy static site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # 纯静态站，无构建步骤：把站点文件收集到 _site/ 再发布。
+      # 只拷必要文件，避免把 .git、.env 等带进发布产物。
+      - name: Assemble site
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp index.html _site/
+          if [ -d downloads ]; then cp -R downloads _site/downloads; fi
+          find _site -type f | sort
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v5

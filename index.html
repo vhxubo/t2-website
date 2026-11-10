@@ -3433,24 +3433,42 @@
       const downloadNote = document.querySelector('[data-download-note]');
 
       if (downloadLinks.length && browserChips.length) {
+        // 兜底源：主站附件缺失时，自动改用 GitHub Pages 上的同一份文件。
+        const GITHUB_PAGES_BASE = 'https://vhxubo.github.io/t2-website/';
+
         const builds = browserChips.reduce((map, chip) => {
           map[chip.dataset.browser] = chip.getAttribute('href');
           return map;
         }, {});
         const browserNames = { chrome: 'Chrome', edge: 'Edge', firefox: 'Firefox' };
+        const alreadyOnPages = /(^|\.)github\.io$/.test(location.hostname);
 
-        const selectBuild = (browser) => {
-          const href = builds[browser];
-          if (!href) return;
+        let source = alreadyOnPages ? 'pages' : 'local';
+        let currentBuild = 'chrome';
+        let probeSettled = false;
+        let settleProbe;
+        const probeDone = new Promise((resolve) => { settleProbe = resolve; });
 
+        const resolveHref = (path) => (source === 'pages' ? new URL(path, GITHUB_PAGES_BASE).href : path);
+
+        const paint = () => {
+          const href = resolveHref(builds[currentBuild]);
           downloadLinks.forEach((link) => link.setAttribute('href', href));
           browserChips.forEach((chip) => {
-            chip.classList.toggle('is-active', chip.dataset.browser === browser);
+            chip.setAttribute('href', resolveHref(builds[chip.dataset.browser]));
+            chip.classList.toggle('is-active', chip.dataset.browser === currentBuild);
           });
 
           if (downloadNote) {
-            downloadNote.textContent = `ZIP · ${browserNames[browser]} 版 · 手动加载 · 免商店安装 · 离线可用`;
+            const suffix = source === 'pages' && !alreadyOnPages ? ' · GitHub Pages 备用源' : '';
+            downloadNote.textContent = `ZIP · ${browserNames[currentBuild]} 版 · 手动加载 · 免商店安装 · 离线可用${suffix}`;
           }
+        };
+
+        const selectBuild = (browser) => {
+          if (!builds[browser]) return;
+          currentBuild = browser;
+          paint();
         };
 
         browserChips.forEach((chip) => {
@@ -3458,12 +3476,48 @@
         });
 
         const ua = navigator.userAgent;
-        let detected = null;
+        let detected = 'chrome';
         if (/Firefox\//.test(ua)) detected = 'firefox';
         else if (/Edg\//.test(ua)) detected = 'edge';
-        else if (/(?:Chrome|CriOS)\//.test(ua)) detected = 'chrome';
+        selectBuild(detected);
 
-        if (detected) selectBuild(detected);
+        const useFallback = () => {
+          source = 'pages';
+          probeSettled = true;
+          settleProbe();
+          paint();
+        };
+
+        // 探测主站附件是否存在；本地文件或 Pages 域名下无需探测。
+        if (location.protocol === 'file:' || alreadyOnPages) {
+          probeSettled = true;
+          settleProbe();
+        } else {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 2500);
+          fetch(builds[currentBuild], { method: 'HEAD', cache: 'no-store', signal: controller.signal })
+            .then((res) => {
+              const type = res.headers.get('content-type') || '';
+              if (!res.ok || /text\/html/i.test(type)) useFallback();
+              else { probeSettled = true; settleProbe(); }
+            })
+            .catch(() => {
+              if (controller.signal.aborted) { probeSettled = true; settleProbe(); }
+              else useFallback();
+            })
+            .finally(() => clearTimeout(timer));
+        }
+
+        // 探测未完成时不放行点击，避免落到主站的 404 页面。
+        downloadLinks.concat(browserChips).forEach((link) => {
+          link.addEventListener('click', (event) => {
+            if (probeSettled) return;
+            event.preventDefault();
+            probeDone.then(() => {
+              window.location.assign(resolveHref(builds[currentBuild]));
+            });
+          });
+        });
       }
     })();
   </script>
